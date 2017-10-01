@@ -2,54 +2,69 @@
 
 namespace TimezoneOptions;
 
+use DateTime;
+use DateTimeZone;
+
 /**
- * Logic from https://pastebin.com/raw/vBmW1cnX
+ * Some borrowed from https://pastebin.com/raw/vBmW1cnX
  */
 class TimezoneOptions {
 
-    public static function generate() {
-        static $regions = array(
-            DateTimeZone::AFRICA,
-            DateTimeZone::AMERICA,
-            DateTimeZone::ANTARCTICA,
-            DateTimeZone::ASIA,
-            DateTimeZone::ATLANTIC,
-            DateTimeZone::AUSTRALIA,
-            DateTimeZone::EUROPE,
-            DateTimeZone::INDIAN,
-            DateTimeZone::PACIFIC,
+    const ORDERBY_REGION = 'regions';
+    const ORDERBY_TIME = 'time';
+    const ORDERBY_OFFSET = 'offset';
+
+    public static function generate($orderBy = null) {
+        $timezoneIds = array_diff(DateTimeZone::listIdentifiers(), ['UTC']);
+
+        $offsets = $result = $byOffsetNeg = $byOffsetPos = [];
+        $now = new DateTime;
+        foreach ($timezoneIds as $timezoneId) {
+            $tz = new DateTimeZone($timezoneId);
+            $offsets[$timezoneId] = $tz->getOffset($now);
+        }
+        ksort($offsets);
+
+        foreach ($offsets as $timezone => $offset) {
+
+            $byOffset = &$byOffsetPos;
+            $offsetPrefix = '+';
+            if ($offset < 0) {
+                $byOffset = &$byOffsetNeg;
+                $offsetPrefix = '-';
+            }
+            $offsetFormatted = $offsetPrefix . gmdate('H:i', abs($offset));
+
+            $now->setTimezone(new DateTimeZone($timezone));
+            $currentTime = $now->format('H:i');
+
+            list($region, $readable) = self::explodeTimezone($timezone);
+            $result[self::ORDERBY_REGION][$region][$timezone] = $readable;
+            $result[self::ORDERBY_TIME][$currentTime][$timezone] = $readable;
+            $byOffset[$offsetFormatted][$timezone] = $readable;
+        }
+        krsort($byOffsetNeg);
+        ksort($byOffsetPos);
+        $result[self::ORDERBY_OFFSET] = $byOffsetNeg + $byOffsetPos;
+        ksort($result[self::ORDERBY_TIME]);
+
+        return ($orderBy) ? $result[$orderBy] : $result;
+    }
+
+    /**
+     * @param type $timezone
+     * @return array [region, readable]
+     */
+    public static function explodeTimezone($timezone) {
+        list($region, $area, $subarea) = array_pad(
+        explode('/', $timezone), 3, ''
         );
+        $area = str_replace('_', ' ', $area);
+        $subarea = str_replace('_', ' ', $subarea);
 
-        $timezones = array();
-        foreach ($regions as $region) {
-            $timezones = array_merge($timezones,
-            DateTimeZone::listIdentifiers($region));
-        }
-
-        $timezone_offsets = array();
-        foreach ($timezones as $timezone) {
-            $tz = new DateTimeZone($timezone);
-            $timezone_offsets[$timezone] = $tz->getOffset(new DateTime);
-        }
-
-        // sort timezone by timezone name
-        ksort($timezone_offsets);
-
-        $timezone_list = array();
-        foreach ($timezone_offsets as $timezone => $offset) {
-            $offset_prefix = $offset < 0 ? '-' : '+';
-            $offset_formatted = gmdate('H:i', abs($offset));
-
-            $pretty_offset = "UTC${offset_prefix}${offset_formatted}";
-
-            $t = new DateTimeZone($timezone);
-            $c = new DateTime(null, $t);
-            $current_time = $c->format('g:i A');
-
-            $timezone_list[$timezone] = "(${pretty_offset}) $timezone - $current_time";
-        }
-
-        return $timezone_list;
+        $readable = $area;
+        $readable .= $subarea ? " ({$subarea})" : '';
+        return [$region, $readable];
     }
 
 }
